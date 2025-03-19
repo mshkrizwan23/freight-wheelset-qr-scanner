@@ -1,25 +1,82 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
 import cv2
 import numpy as np
 from pyzbar.pyzbar import decode
 import datetime
 
-# Load wheelset data
-data_file = "wheelset_data.csv"
-df = pd.read_csv(data_file)
+# Connect to SQLite database
+def init_db():
+    conn = sqlite3.connect("wheelset_data.db")
+    cursor = conn.cursor()
+    
+    # Ensure tables exist
+    cursor.executescript('''
+        CREATE TABLE IF NOT EXISTS Wheelset_Master (
+            Wheelset_ID TEXT PRIMARY KEY,
+            Wagon_No TEXT,
+            Manufacturing_Date DATE,
+            Current_Condition TEXT,
+            Last_Maintenance DATE,
+            RUL_km INTEGER,
+            Total_Mileage INTEGER,
+            QR_Code TEXT
+        );
 
+        CREATE TABLE IF NOT EXISTS Wheelset_Condition_History (
+            Entry_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+            Wheelset_ID TEXT,
+            Date_Recorded DATE,
+            Condition TEXT,
+            Wear_Level_mm REAL,
+            Defects_Logged TEXT,
+            FOREIGN KEY (Wheelset_ID) REFERENCES Wheelset_Master(Wheelset_ID)
+        );
+
+        CREATE TABLE IF NOT EXISTS Maintenance_History (
+            Maintenance_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+            Wheelset_ID TEXT,
+            Date DATE,
+            Intervention_Type TEXT,
+            Performed_By TEXT,
+            Notes TEXT,
+            FOREIGN KEY (Wheelset_ID) REFERENCES Wheelset_Master(Wheelset_ID)
+        );
+    ''')
+    conn.commit()
+    conn.close()
+
+# Scan QR code
 def scan_qr_code(image):
-    """Scans a QR code from an uploaded image."""
     img = cv2.imdecode(np.frombuffer(image.read(), np.uint8), 1)
     decoded_objects = decode(img)
     if decoded_objects:
         return decoded_objects[0].data.decode("utf-8")
     return None
 
+# Fetch wheelset details
+def fetch_wheelset_data(wheelset_id):
+    conn = sqlite3.connect("wheelset_data.db")
+    df = pd.read_sql(f"SELECT * FROM Wheelset_Master WHERE Wheelset_ID = '{wheelset_id}'", conn)
+    conn.close()
+    return df
+
+# Update maintenance record
+def mark_as_maintained(wheelset_id):
+    conn = sqlite3.connect("wheelset_data.db")
+    cursor = conn.cursor()
+    today = datetime.date.today()
+    cursor.execute("UPDATE Wheelset_Master SET Last_Maintenance = ?, Current_Condition = 'Good' WHERE Wheelset_ID = ?", (today, wheelset_id))
+    conn.commit()
+    conn.close()
+
 # Streamlit UI
 st.set_page_config(page_title="Freight Wagon Wheelset QR Scanner", layout="centered")
 st.title("Freight Wagon Wheelset QR Scanner")
+
+# Initialize database
+init_db()
 
 uploaded_file = st.file_uploader("Upload a QR Code Image", type=["png", "jpg", "jpeg"])
 if uploaded_file:
@@ -29,42 +86,20 @@ if uploaded_file:
         st.success(f"Scanned Wheelset ID: {wheelset_id}")
         
         # Retrieve wheelset data
-        wheelset_info = df[df["Wheelset_ID"] == wheelset_id]
+        wheelset_info = fetch_wheelset_data(wheelset_id)
         if not wheelset_info.empty:
             st.write("### Wheelset Details")
             st.write(wheelset_info)
             
             # Automated Alerts
-            if wheelset_info.iloc[0]['Condition'] == "Needs Maintenance":
+            if wheelset_info.iloc[0]['Current_Condition'] == "Needs Maintenance":
                 st.error("⚠️ This wheelset requires maintenance!")
             
             # Update Maintenance Record
             if st.button("Mark as Maintained"):
-                df.loc[df["Wheelset_ID"] == wheelset_id, "Last_Maintenance"] = datetime.date.today()
-                df.loc[df["Wheelset_ID"] == wheelset_id, "Condition"] = "Good"
-                df.to_csv(data_file, index=False)
+                mark_as_maintained(wheelset_id)
                 st.success("✅ Maintenance record updated!")
                 st.experimental_rerun()
-            
-            # Export Data
-            export_option = st.radio("Export Data As:", ["CSV", "PDF"], index=0)
-            if export_option == "CSV":
-                csv_data = df.to_csv(index=False).encode('utf-8')
-                st.download_button("Download CSV", csv_data, "wheelset_data.csv", "text/csv")
-            elif export_option == "PDF":
-                import io
-                from reportlab.pdfgen import canvas
-                pdf_buffer = io.BytesIO()
-                c = canvas.Canvas(pdf_buffer)
-                c.drawString(100, 800, "Wheelset Data Report")
-                c.drawString(100, 780, f"Wheelset ID: {wheelset_id}")
-                c.drawString(100, 760, f"Mileage: {wheelset_info.iloc[0]['Mileage']}")
-                c.drawString(100, 740, f"Last Maintenance: {wheelset_info.iloc[0]['Last_Maintenance']}")
-                c.drawString(100, 720, f"Condition: {wheelset_info.iloc[0]['Condition']}")
-                c.drawString(100, 700, f"Remaining Useful Life: {wheelset_info.iloc[0]['RUL_km']} km")
-                c.save()
-                pdf_buffer.seek(0)
-                st.download_button("Download PDF", pdf_buffer, "wheelset_report.pdf", "application/pdf")
         else:
             st.error("Wheelset not found in the database.")
     else:
