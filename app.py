@@ -71,6 +71,35 @@ def mark_as_maintained(wheelset_id):
     conn.commit()
     conn.close()
 
+import sqlite3
+
+def populate_database():
+    conn = sqlite3.connect("wheelset_data.db")
+    cursor = conn.cursor()
+    
+    # Check if data already exists
+    cursor.execute("SELECT COUNT(*) FROM Wheelset_Master")
+    count = cursor.fetchone()[0]
+    
+    if count == 0:  # Only insert data if the table is empty
+        sample_data = [
+            ("C8R2T90Y", "WGN001", "2018-05-12", "Needs Maintenance", "2021-11-28", 19496, 100663, "QR_C8R2T90Y.png"),
+            ("7ENW5DCS", "WGN002", "2019-07-19", "Good", "2023-06-10", 34560, 125432, "QR_7ENW5DCS.png"),
+            ("DVIX13QL", "WGN003", "2020-01-30", "Moderate", "2023-09-15", 28974, 112789, "QR_DVIX13QL.png")
+        ]
+        
+        cursor.executemany("""
+            INSERT INTO Wheelset_Master (Wheelset_ID, Wagon_No, Manufacturing_Date, Current_Condition, Last_Maintenance, RUL_km, Total_Mileage, QR_Code)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, sample_data)
+        
+        conn.commit()
+        print("✅ Sample data inserted successfully!")
+    
+    conn.close()
+
+populate_database()
+
 # Streamlit UI
 st.set_page_config(page_title="Freight Wagon Wheelset QR Scanner", layout="centered")
 st.title("Freight Wagon Wheelset QR Scanner")
