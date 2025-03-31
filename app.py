@@ -5,7 +5,7 @@ import sqlite3
 import datetime
 
 # Connect to database
-conn = sqlite3.connect("/mnt/data/wheelsets_demo_download.db", check_same_thread=False)
+conn = sqlite3.connect("/mnt/data/wheelsets_demo.db", check_same_thread=False)
 
 # Load wheelset options
 wheelsets = pd.read_sql("SELECT Wheelset_ID FROM Wheelset_Master", conn)["Wheelset_ID"].tolist()
