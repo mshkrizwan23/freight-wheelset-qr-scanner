@@ -1,135 +1,66 @@
+# Streamlit Dashboard for Wheelset Asset Management
 import streamlit as st
-import sqlite3
 import pandas as pd
-import cv2
-import numpy as np
-from pyzbar.pyzbar import decode
+import sqlite3
 import datetime
 
-# Connect to SQLite database
-def init_db():
-    conn = sqlite3.connect("wheelset_data.db")
-    cursor = conn.cursor()
-    
-    # Ensure tables exist
-    cursor.executescript('''
-        CREATE TABLE IF NOT EXISTS Wheelset_Master (
-            Wheelset_ID TEXT PRIMARY KEY,
-            Wagon_No TEXT,
-            Manufacturing_Date DATE,
-            Current_Condition TEXT,
-            Last_Maintenance DATE,
-            RUL_km INTEGER,
-            Total_Mileage INTEGER,
-            QR_Code TEXT
-        );
+# Connect to database
+conn = sqlite3.connect("/mnt/data/wheelsets_demo.db", check_same_thread=False)
 
-        CREATE TABLE IF NOT EXISTS Wheelset_Condition_History (
-            Entry_ID INTEGER PRIMARY KEY AUTOINCREMENT,
-            Wheelset_ID TEXT,
-            Date_Recorded DATE,
-            Condition TEXT,
-            Wear_Level_mm REAL,
-            Defects_Logged TEXT,
-            FOREIGN KEY (Wheelset_ID) REFERENCES Wheelset_Master(Wheelset_ID)
-        );
+# Load wheelset options
+wheelsets = pd.read_sql("SELECT Wheelset_ID FROM Wheelset_Master", conn)["Wheelset_ID"].tolist()
+st.title("🚆 Freight Wheelset Asset Dashboard")
+st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/thumb/3/39/UK_Rail_Logo.svg/2560px-UK_Rail_Logo.svg.png", width=200)
 
-        CREATE TABLE IF NOT EXISTS Maintenance_History (
-            Maintenance_ID INTEGER PRIMARY KEY AUTOINCREMENT,
-            Wheelset_ID TEXT,
-            Date DATE,
-            Intervention_Type TEXT,
-            Performed_By TEXT,
-            Notes TEXT,
-            FOREIGN KEY (Wheelset_ID) REFERENCES Wheelset_Master(Wheelset_ID)
-        );
-    ''')
-    conn.commit()
-    conn.close()
+selected_id = st.sidebar.selectbox("🔍 Scan or Select Wheelset ID", wheelsets)
 
-# Scan QR code
-def scan_qr_code(image):
-    img = cv2.imdecode(np.frombuffer(image.read(), np.uint8), 1)
-    decoded_objects = decode(img)
-    if decoded_objects:
-        return decoded_objects[0].data.decode("utf-8")
-    return None
+# Fetch asset info
+ws_info = pd.read_sql(f"SELECT * FROM Wheelset_Master WHERE Wheelset_ID = '{selected_id}'", conn).iloc[0]
+st.header(f"Asset Overview – Wheelset {selected_id}")
 
-# Fetch wheelset details
-def fetch_wheelset_data(wheelset_id):
-    conn = sqlite3.connect("wheelset_data.db")
-    df = pd.read_sql(f"SELECT * FROM Wheelset_Master WHERE Wheelset_ID = '{wheelset_id}'", conn)
-    conn.close()
-    return df
+# Asset Summary
+st.markdown("### ⚙️ Asset Summary")
+col1, col2, col3 = st.columns(3)
+col1.metric("📦 Wagon No", ws_info.Wagon_No)
+col2.metric("📍 Position", ws_info.Current_Position)
+col3.metric("🔧 Install Date", ws_info.Install_Date)
 
-# Update maintenance record
-def mark_as_maintained(wheelset_id):
-    conn = sqlite3.connect("wheelset_data.db")
-    cursor = conn.cursor()
-    today = datetime.date.today()
-    cursor.execute("UPDATE Wheelset_Master SET Last_Maintenance = ?, Current_Condition = 'Good' WHERE Wheelset_ID = ?", (today, wheelset_id))
-    conn.commit()
-    conn.close()
+col1, col2, col3 = st.columns(3)
+col1.metric("📊 Mileage (km)", f"{ws_info.Total_Mileage:,}")
+col2.metric("⏳ RUL (km)", f"{ws_info.RUL_km:,}")
+col3.metric("🩺 Condition", ws_info.Current_Condition)
 
-import sqlite3
+# Tabs
+tabs = st.tabs(["📋 Overview", "🛠️ Inspection Log", "📊 Monitoring", "🧠 Decision Support"])
 
-def populate_database():
-    conn = sqlite3.connect("wheelset_data.db")
-    cursor = conn.cursor()
-    
-    # Check if data already exists
-    cursor.execute("SELECT COUNT(*) FROM Wheelset_Master")
-    count = cursor.fetchone()[0]
-    
-    if count == 0:  # Only insert data if the table is empty
-        sample_data = [
-            ("C8R2T90Y", "WGN001", "2018-05-12", "Needs Maintenance", "2021-11-28", 19496, 100663, "QR_C8R2T90Y.png"),
-            ("7ENW5DCS", "WGN002", "2019-07-19", "Good", "2023-06-10", 34560, 125432, "QR_7ENW5DCS.png"),
-            ("DVIX13QL", "WGN003", "2020-01-30", "Moderate", "2023-09-15", 28974, 112789, "QR_DVIX13QL.png")
-        ]
-        
-        cursor.executemany("""
-            INSERT INTO Wheelset_Master (Wheelset_ID, Wagon_No, Manufacturing_Date, Current_Condition, Last_Maintenance, RUL_km, Total_Mileage, QR_Code)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, sample_data)
-        
-        conn.commit()
-        print("✅ Sample data inserted successfully!")
-    
-    conn.close()
+# --- Overview Tab ---
+with tabs[0]:
+    st.subheader("🛤️ Wheelset History Timeline")
+    st.write("Coming soon: Wagon exchanges and usage journey")
 
-populate_database()
+# --- Inspection Tab ---
+with tabs[1]:
+    st.subheader("📅 Past Inspections")
+    inspections = pd.read_sql(f"SELECT * FROM Inspection_Log WHERE Wheelset_ID = '{selected_id}'", conn)
+    st.dataframe(inspections.sort_values("Date", ascending=False))
 
-# Streamlit UI
-st.set_page_config(page_title="Freight Wagon Wheelset QR Scanner", layout="centered")
-st.title("Freight Wagon Wheelset QR Scanner")
+# --- Monitoring Tab ---
+with tabs[2]:
+    st.subheader("📡 Condition Monitoring")
+    monitoring = pd.read_sql(f"SELECT * FROM Monitoring_Data WHERE Wheelset_ID = '{selected_id}'", conn)
+    st.dataframe(monitoring)
 
-# Initialize database
-init_db()
+# --- Decision Support Tab ---
+with tabs[3]:
+    st.subheader("🧠 Decision Support")
+    condition = ws_info.Current_Condition
+    rul = ws_info.RUL_km
 
-uploaded_file = st.file_uploader("Upload a QR Code Image", type=["png", "jpg", "jpeg"])
-if uploaded_file:
-    qr_result = scan_qr_code(uploaded_file)
-    if qr_result:
-        wheelset_id = qr_result.split(":")[1]
-        st.success(f"Scanned Wheelset ID: {wheelset_id}")
-        
-        # Retrieve wheelset data
-        wheelset_info = fetch_wheelset_data(wheelset_id)
-        if not wheelset_info.empty:
-            st.write("### Wheelset Details")
-            st.write(wheelset_info)
-            
-            # Automated Alerts
-            if wheelset_info.iloc[0]['Current_Condition'] == "Needs Maintenance":
-                st.error("⚠️ This wheelset requires maintenance!")
-            
-            # Update Maintenance Record
-            if st.button("Mark as Maintained"):
-                mark_as_maintained(wheelset_id)
-                st.success("✅ Maintenance record updated!")
-                st.experimental_rerun()
-        else:
-            st.error("Wheelset not found in the database.")
+    if condition == "Needs Maintenance" or rul < 10000:
+        st.error("🚨 This wheelset is flagged for immediate maintenance.")
+    elif rul < 20000:
+        st.warning("⚠️ Approaching maintenance threshold. Monitor closely.")
     else:
-        st.error("No QR Code detected. Try another image.")
+        st.success("✅ No urgent actions needed.")
+
+    st.write("Future feature: Predictive analytics, float planning, lathe queue insights")
