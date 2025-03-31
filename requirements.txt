@@ -1,5 +1,3 @@
-opencv-python-headless
-pandas
 streamlit
-numpy
-pyzbar
+pandas
+sqlite3  # not always needed explicitly
